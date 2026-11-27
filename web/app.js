@@ -833,7 +833,8 @@ const DEFAULT_PROJECT_ID='welcome';
 function defaultProjectId(projects,userId){const list=projects||[];const mine=userId?list.find(p=>p.ownerId===userId||(p.members||[]).some(m=>m.userId===userId)):null;return (mine||list.find(p=>p.id===DEFAULT_PROJECT_ID)||list[0])?.id||''}
 function currentRepository(project=currentProject()){const id=project?.defaultRepositoryId;return (state.data.repositories||[]).find(r=>r.id===id)}
 function userById(id){return (state.data.users||[]).find(u=>Number(u.id)===Number(id))}
-function userDisplay(user){return user?(user.chineseName&&user.loginName?`${user.loginName}(${user.chineseName})`:user.loginName||user.chineseName||`用户 ${user.id}`):''}
+function userDisplayName(user){return String(user?.displayName||user?.chineseName||user?.loginName||'').trim()}
+function userDisplay(user){if(!user)return '';const name=userDisplayName(user);return user.loginName?(name&&name!==user.loginName?`${user.loginName}(${name})`:user.loginName):name||`用户 ${user.id}`}
 function projectMembers(projectId){return ((state.data.projects||[]).find(p=>p.id===projectId)||{}).members||[]}
 function issueAssigneeName(issue){
 	if(issue?.assigneeUserId)return userDisplay(userById(issue.assigneeUserId));

@@ -623,7 +623,8 @@ paths:
     get:
       tags: [System]
       operationId: getEmployeePhoto
-      summary: Fetch a user avatar from the configured SSO photo service
+      summary: "Fetch a user avatar: uploaded image, SSO photo, or generated initials"
+      description: A user-uploaded avatar always wins. Append the user's avatarVersion as ?v= to cache it safely; without v the response is revalidated.
       parameters:
         - name: spec
           in: path
@@ -635,21 +636,69 @@ paths:
           required: true
           description: User login name (with or without .png)
           schema: {type: string}
+        - name: v
+          in: query
+          required: false
+          description: Avatar version from the user profile; makes the image cacheable indefinitely.
+          schema: {type: integer, format: int64}
       responses:
         "200":
           description: Avatar image binary
           headers:
             Cache-Control:
               schema: {type: string, example: "public, max-age=86400"}
+            ETag:
+              schema: {type: string}
           content:
             image/png:
               schema: {type: string, format: binary}
+            image/jpeg:
+              schema: {type: string, format: binary}
+            image/svg+xml:
+              schema: {type: string}
+        "304":
+          description: The cached avatar still matches If-None-Match
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
         "502":
           description: SSO photo service error
+  /api/auth/password:
+    put:
+      tags: [System]
+      operationId: changeOwnPassword
+      summary: Change the current local account password
+      description: Requires a same-origin browser session and the current password. Accounts that sign in through GitHub or a gateway have no platform password and are refused.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword: {type: string, maxLength: 72}
+                newPassword: {type: string, minLength: 6, maxLength: 72}
+      responses:
+        "200":
+          description: Password changed; the current session stays valid
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: {type: boolean}
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Cross-origin request
+        "429":
+          description: Too many password attempts
   /api/auth/tokens:
     get:
       tags: [System]
@@ -746,6 +795,99 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/User"
+  /api/users/{id}/profile:
+    put:
+      tags: [Users]
+      operationId: updateOwnProfile
+      summary: Update the current user's display name
+      description: An empty displayName clears the override and shows the directory / SSO name again. Same-origin browser sessions and bearer-token clients may call this.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer, format: int64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                displayName: {type: string, maxLength: 40, description: "Trimmed; control characters are rejected"}
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/User"}
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Another user's profile or a cross-origin browser request
+  /api/users/{id}/avatar:
+    put:
+      tags: [Users]
+      operationId: updateOwnAvatar
+      summary: Upload the current user's avatar
+      description: Raw JPEG or PNG body, at most 2 MB and 4096x4096. The settings page center-crops and compresses images to 512x512 before upload. Returns the updated user and the new cache version.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer, format: int64}
+      requestBody:
+        required: true
+        content:
+          image/png:
+            schema: {type: string, format: binary}
+          image/jpeg:
+            schema: {type: string, format: binary}
+      responses:
+        "200":
+          description: Avatar stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserAvatarUpdate"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Another user's avatar or a cross-origin browser request
+        "413":
+          description: Image exceeds 2 MB
+        "415":
+          description: Not a JPEG/PNG image or outside the allowed dimensions
+    delete:
+      tags: [Users]
+      operationId: deleteOwnAvatar
+      summary: Remove the current user's uploaded avatar
+      description: Falls back to the SSO photo or generated initials. Removing an absent avatar is a no-op.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer, format: int64}
+      responses:
+        "200":
+          description: Avatar removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserAvatarUpdate"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Another user's avatar or a cross-origin browser request
   /api/users/{id}/credentials:
     put:
       tags: [Users]
@@ -4400,9 +4542,13 @@ components:
         staffId: {type: integer}
         loginName: {type: string}
         chineseName: {type: string}
+        displayName: {type: string, description: "User-set name that overrides chineseName in the UI"}
         deptId: {type: integer}
         deptName: {type: string}
-        avatarUrl: {type: string}
+        passwordLogin: {type: boolean, readOnly: true, description: "True when the account signs in with a local password"}
+        avatarConfigured: {type: boolean, readOnly: true}
+        avatarVersion: {type: integer, format: int64, readOnly: true}
+        avatarUrl: {type: string, description: "Versioned relative avatar URL"}
         gitHubCredentialConfigured: {type: boolean, readOnly: true}
         codeBuddyApiKeyConfigured: {type: boolean, readOnly: true}
         codeBuddyBaseUrl: {type: string}
@@ -4411,6 +4557,14 @@ components:
         claudeCodeApiKeyConfigured: {type: boolean, readOnly: true}
         claudeCodeBaseUrl: {type: string}
         codeBuddyInternetEnvironment: {type: string}
+    UserAvatarUpdate:
+      type: object
+      required: [user, avatarConfigured]
+      properties:
+        user: {$ref: "#/components/schemas/User"}
+        avatarUrl: {type: string}
+        avatarVersion: {type: integer, format: int64}
+        avatarConfigured: {type: boolean}
     RepositoryInput:
       type: object
       required: [projectId]

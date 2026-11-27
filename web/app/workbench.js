@@ -1604,6 +1604,222 @@ async function refreshGongfengGrant(){
   await refreshGitTokenStatus();
 }
 
+function personalProfileHTML(user,stored){
+  const t=typeof lfT==='function'?lfT:(zh)=>zh;
+  const avatarConfigured=!!(stored.avatarConfigured??user.avatarConfigured);
+  const passwordLogin=!!(stored.passwordLogin??user.passwordLogin);
+  const department=user.deptName||stored.deptName||'';
+  const displayValue=user.displayName||stored.displayName||'';
+  const authSource=passwordLogin?t('本地账号 · 用户名密码','Local account · password'):t('GitHub / 单点登录','GitHub / single sign-on');
+  const passwordSection=passwordLogin?`
+    <form id="profilePasswordForm" class="profile-password-form" novalidate>
+      <div class="profile-password-fields">
+        <label class="profile-field"><span>${t('当前密码','Current password')}</span><input name="currentPassword" type="password" autocomplete="current-password" maxlength="72" required></label>
+        <label class="profile-field"><span>${t('新密码','New password')}</span><input name="newPassword" type="password" autocomplete="new-password" minlength="6" maxlength="72" required></label>
+        <label class="profile-field"><span>${t('确认新密码','Confirm new password')}</span><input name="confirmPassword" type="password" autocomplete="new-password" minlength="6" maxlength="72" required></label>
+      </div>
+      <div class="profile-form-foot">
+        <small>${t('至少 6 位；修改后当前登录保持有效。','At least 6 characters. You stay signed in after changing it.')}</small>
+        <button class="button primary" type="submit">${t('修改密码','Change password')}</button>
+      </div>
+    </form>`:`<p class="profile-hint">${t('当前账号通过 GitHub 或单点登录，密码由身份系统管理。','This account signs in through GitHub or single sign-on, so its password is managed by the identity system.')}</p>`;
+  return `<section class="profile-card is-entering" id="personalProfileCard">
+    <div class="profile-card-head">
+      <div class="profile-avatar-lg">${userAvatarHTML(user,150)}</div>
+      <div class="profile-card-title">
+        <h2>${t('个人资料','Profile')}</h2>
+        <p>${t('头像和显示名称会出现在导航、需求、运行等所有提到你的位置。','Your avatar and display name appear everywhere you are mentioned: navigation, requirements, runs and more.')}</p>
+      </div>
+    </div>
+    <div class="profile-avatar-row">
+      <div class="profile-avatar-copy">
+        <b>${t('头像','Avatar')}</b>
+        <small>${avatarConfigured?t('正在使用自定义头像','Using a custom avatar'):t('当前使用系统头像','Using the system avatar')}</small>
+      </div>
+      <div class="profile-avatar-actions">
+        <button type="button" class="button primary small" id="profileAvatarUpload">${avatarConfigured?t('更换头像','Change avatar'):t('上传头像','Upload avatar')}</button>
+        ${avatarConfigured?`<button type="button" class="button ghost small" id="profileAvatarRemove">${t('恢复默认','Restore default')}</button>`:''}
+        <input type="file" id="profileAvatarFile" accept="image/jpeg,image/png" hidden>
+      </div>
+    </div>
+    <p class="profile-hint profile-avatar-hint">${t('支持 JPG / PNG，上传后自动居中裁剪为 512×512 正方形。','JPG / PNG. Uploads are center-cropped to a 512×512 square.')}</p>
+    <form id="profileNameForm" class="profile-name-form" novalidate>
+      <label class="profile-field"><span>${t('显示名称','Display name')}</span>
+        <input name="displayName" maxlength="40" value="${escapeHTML(displayValue)}" placeholder="${escapeHTML(user.chineseName||user.loginName||'')}" autocomplete="off">
+        <small>${t('留空则使用账号姓名；最多 40 个字符。','Leave empty to use your account name; up to 40 characters.')}</small>
+      </label>
+      <button class="button primary" type="submit">${t('保存','Save')}</button>
+    </form>
+    <div class="profile-meta">
+      <div><span>${t('登录账号','Sign-in name')}</span><b>${escapeHTML(user.loginName||'-')}</b></div>
+      <div><span>${t('所属部门','Department')}</span><b title="${escapeHTML(department||'-')}">${escapeHTML(department||'-')}</b></div>
+      <div><span>${t('认证方式','Authentication')}</span><b>${escapeHTML(authSource)}</b></div>
+      <div><span>${t('用户 ID','User ID')}</span><b>${escapeHTML(String(user.id||'-'))}</b></div>
+    </div>
+  </section>
+  <section class="personal-settings-card profile-security is-entering" id="profileSecurityCard">
+    <h2>${t('登录密码','Sign-in password')}</h2>
+    ${passwordSection}
+  </section>`;
+}
+
+function applyProfileUser(updated){
+  if(!updated||!state.currentUser)return;
+  const id=Number(updated.id||state.currentUser.id);
+  if(Number(state.currentUser.id)===id)state.currentUser={...state.currentUser,...updated};
+  if(Array.isArray(state.data.users)){
+    const index=state.data.users.findIndex(item=>Number(item.id)===id);
+    if(index>=0)state.data.users[index]={...state.data.users[index],...updated};
+  }
+  renderUserBadge();
+}
+
+// Reads the chosen image, center-crops it to a square and compresses it to a
+// JPEG small enough for the avatar endpoint.
+function squareAvatarBlob(file){
+  return new Promise((resolve,reject)=>{
+    const url=URL.createObjectURL(file);
+    const image=new Image();
+    image.onload=()=>{
+      try{
+        const side=Math.min(image.naturalWidth,image.naturalHeight);
+        if(side<16)throw new Error(lfT('图片太小，至少需要 16×16 像素','That image is too small; use at least 16×16 pixels'));
+        const size=Math.min(512,side);
+        const canvas=document.createElement('canvas');
+        canvas.width=canvas.height=size;
+        const context=canvas.getContext('2d');
+        context.fillStyle='#fff';
+        context.fillRect(0,0,size,size);
+        context.drawImage(image,(image.naturalWidth-side)/2,(image.naturalHeight-side)/2,side,side,0,0,size,size);
+        canvas.toBlob(blob=>{
+          URL.revokeObjectURL(url);
+          blob?resolve(blob):reject(new Error(lfT('图片处理失败，请换一张','Could not process that image; try another one')));
+        },'image/jpeg',0.9);
+      }catch(err){URL.revokeObjectURL(url);reject(err)}
+    };
+    image.onerror=()=>{URL.revokeObjectURL(url);reject(new Error(lfT('无法读取图片，请换一张','Could not read that image; try another one')))};
+    image.src=url;
+  });
+}
+
+async function uploadProfileAvatar(user,file){
+  if(!/^image\/(jpeg|jpg|png)$/.test(file.type))return toast(lfT('请选择 JPG 或 PNG 图片','Choose a JPG or PNG image'),'err');
+  if(file.size>20*1024*1024)return toast(lfT('原图不能超过 20MB','The original image must be 20MB or smaller'),'err');
+  let blob;
+  try{blob=await squareAvatarBlob(file)}catch(err){return toast(err.message,'err')}
+  if(blob.size>2*1024*1024)return toast(lfT('处理后的头像仍超过 2MB，请换一张','The processed avatar is still over 2MB; try another image'),'err');
+  try{
+    const result=await api(`/api/users/${encodeURIComponent(user.id)}/avatar`,{method:'PUT',headers:{'Content-Type':blob.type||'image/jpeg'},body:blob});
+    applyProfileUser(result.user||{});
+    refreshPersonalProfileCard();
+    toast(lfT('头像已更新','Avatar updated'),'ok');
+  }catch(err){toast(err.message,'err')}
+}
+
+function bindPersonalProfile(host,user){
+  const fileInput=host.querySelector('#profileAvatarFile');
+  const uploadButton=host.querySelector('#profileAvatarUpload');
+  const removeButton=host.querySelector('#profileAvatarRemove');
+  if(uploadButton&&fileInput){
+    uploadButton.onclick=()=>fileInput.click();
+    fileInput.onchange=()=>{
+      const file=fileInput.files?.[0];
+      fileInput.value='';
+      if(!file)return;
+      uploadButton.disabled=true;
+      uploadButton.textContent=lfT('上传中…','Uploading…');
+      uploadProfileAvatar(user,file).finally(()=>{
+        if(uploadButton.isConnected){uploadButton.disabled=false;uploadButton.textContent=lfT('更换头像','Change avatar')}
+      });
+    };
+  }
+  if(removeButton){
+    removeButton.onclick=async()=>{
+      removeButton.disabled=true;
+      removeButton.textContent=lfT('正在恢复…','Restoring…');
+      try{
+        const result=await api(`/api/users/${encodeURIComponent(user.id)}/avatar`,{method:'DELETE'});
+        applyProfileUser(result.user||{});
+        refreshPersonalProfileCard();
+        toast(lfT('已恢复系统头像','Restored the system avatar'),'ok');
+      }catch(err){
+        toast(err.message,'err');
+        removeButton.disabled=false;
+        removeButton.textContent=lfT('恢复默认','Restore default');
+      }
+    };
+  }
+  const nameForm=host.querySelector('#profileNameForm');
+  if(nameForm){
+    nameForm.onsubmit=async event=>{
+      event.preventDefault();
+      const next=String(nameForm.elements.displayName.value||'').trim();
+      if([...next].length>40)return toast(lfT('显示名称最多 40 个字符','Display names are limited to 40 characters'),'err');
+      const button=nameForm.querySelector('button[type="submit"]');
+      button.disabled=true;
+      button.textContent=lfT('保存中…','Saving…');
+      try{
+        const saved=await api(`/api/users/${encodeURIComponent(user.id)}/profile`,{method:'PUT',body:JSON.stringify({displayName:next})});
+        applyProfileUser(saved);
+        refreshPersonalProfileCard();
+        toast(lfT('显示名称已保存','Display name saved'),'ok');
+      }catch(err){
+        toast(err.message,'err');
+        button.disabled=false;
+        button.textContent=lfT('保存','Save');
+      }
+    };
+  }
+  const passwordForm=host.querySelector('#profilePasswordForm');
+  if(passwordForm){
+    passwordForm.onsubmit=async event=>{
+      event.preventDefault();
+      const current=String(passwordForm.elements.currentPassword.value||'');
+      const next=String(passwordForm.elements.newPassword.value||'');
+      const confirm=String(passwordForm.elements.confirmPassword.value||'');
+      if(next.length<6)return toast(lfT('新密码至少 6 位','The new password needs at least 6 characters'),'err');
+      if(next!==confirm)return toast(lfT('两次输入的新密码不一致','The new passwords do not match'),'err');
+      if(next===current)return toast(lfT('新密码不能与当前密码相同','The new password must differ from the current one'),'err');
+      const button=passwordForm.querySelector('button[type="submit"]');
+      button.disabled=true;
+      button.textContent=lfT('修改中…','Changing…');
+      try{
+        await api('/api/auth/password',{method:'PUT',body:JSON.stringify({currentPassword:current,newPassword:next})});
+        passwordForm.reset();
+        toast(lfT('密码已修改','Password changed'),'ok');
+      }catch(err){toast(err.message,'err')}
+      finally{
+        if(button.isConnected){button.disabled=false;button.textContent=lfT('修改密码','Change password')}
+      }
+    };
+  }
+}
+
+function renderPersonalAccountStrip(user){
+  const account=$('#personalSettingsAccount');
+  if(!account)return;
+  if(!user||user.isGuest){account.hidden=true;return}
+  account.hidden=false;
+  const name=user.displayName||user.chineseName||user.loginName||userDisplay(user);
+  const login=user.loginName&&user.loginName!==name?`<small>${escapeHTML(user.loginName)}</small>`:'';
+  account.innerHTML=`<span class="credential-avatar">${userAvatarHTML(user,150)}</span><div><b>${escapeHTML(name)}</b>${login}</div>`;
+}
+
+// Refresh only the profile card so unsaved credential inputs survive an
+// avatar or display-name change.
+function refreshPersonalProfileCard(){
+  const current=document.querySelector('#personalProfileCard');
+  const user=state.currentUser;
+  if(!current||!user||user.isGuest)return;
+  const template=document.createElement('template');
+  template.innerHTML=personalProfileHTML(user,userById(user.id)||{});
+  const next=template.content.querySelector('#personalProfileCard');
+  if(next)current.replaceWith(next);
+  renderPersonalAccountStrip(user);
+  bindPersonalProfile($('#personalSettingsContent'),user);
+  hydrateCredentialIcons($('#personalSettingsContent'));
+}
+
 async function renderPersonalSettings(){
   const host=$('#personalSettingsContent');if(!host)return;
   const account=$('#personalSettingsAccount');
@@ -1625,18 +1841,15 @@ async function renderPersonalSettings(){
     toast('工蜂授权已保存，正在校验授权有效性…');
   }
   if(credentialWizard)closeCredentialWizard(true);
-  if(account){
-    const name=user.chineseName||user.loginName||userDisplay(user);
-    const login=user.loginName&&user.loginName!==name?`<small>${escapeHTML(user.loginName)}</small>`:'';
-    account.innerHTML=`<span class="credential-avatar">${userAvatarHTML(user,150)}</span><div><b>${escapeHTML(name)}</b>${login}</div>`;
-  }
-  host.innerHTML='<section class="credential-panel is-entering" id="credentialPanel"></section>';
+  renderPersonalAccountStrip(user);
+  host.innerHTML=`<div class="profile-stack">${personalProfileHTML(user,storedUser)}</div><section class="credential-panel is-entering" id="credentialPanel"></section>`;
+  bindPersonalProfile(host,user);
   const panel=host.querySelector('#credentialPanel');
   bindCredentialPanel(panel);
   renderCredentialPanel();
   loadCredentialEffortCatalogs().then(()=>panel.querySelectorAll('[data-credential-catalog]').forEach(refreshCredentialCatalogEfforts));
   hydrateCredentialIcons(host);
-  setTimeout(()=>panel.classList.remove('is-entering'),900);
+  setTimeout(()=>host.querySelectorAll('.is-entering').forEach(el=>el.classList.remove('is-entering')),900);
   // Offer the OAuth shortcut only when the server has a Gongfeng application.
   api('/api/auth/gongfeng',{silent:true}).then(capability=>{state.gongfengOAuthEnabled=!!capability?.enabled;document.querySelectorAll('[data-gongfeng-oauth]').forEach(el=>{el.hidden=!state.gongfengOAuthEnabled})}).catch(()=>{});
   if(storedUser.gitHubCredentialConfigured){
@@ -1644,6 +1857,7 @@ async function renderPersonalSettings(){
     if(!cached||(cached.busy&&!state.gitTokenVerifyInFlight)){state.gitTokenVerifyInFlight=true;refreshGitTokenStatus().finally(()=>{state.gitTokenVerifyInFlight=false})}
   }
 }
+
 // 谁能改通用模板是平台级权限，不属于任何一个项目，也不属于个人凭据；
 // 只有平台管理员能看到「平台管理」入口。
 function renderPlatformNav(){
@@ -2279,7 +2493,7 @@ function renderUserProfilePopover() {
   if (!popover) return;
   const user = state.currentUser;
   const isGuest = !user || user.isGuest;
-  const displayName = user?.chineseName || user?.loginName || '访客';
+  const displayName = user?.displayName || user?.chineseName || user?.loginName || '访客';
   const initial = (displayName[0] || '访').toUpperCase();
   const version = document.querySelector('meta[name="loopforge-release-version"]')?.content;
   const build = $('.loopforge-build');
@@ -2343,7 +2557,7 @@ function renderUserProfilePopover() {
       <div class="upp-info-list">
         <div class="upp-info-item">
           <span class="upp-label">显示名称</span>
-          <span class="upp-value">${escapeHTML(user.chineseName || displayName)}</span>
+          <span class="upp-value">${escapeHTML(displayName)}</span>
         </div>
         <div class="upp-info-item">
           <span class="upp-label">登录账号</span>
@@ -2433,13 +2647,24 @@ function userAvatarHTML(userOrId, spec=100, extraClass=''){
     }
   }
   const isGuest = !user || user.isGuest || user.loginName === 'guest' || !user.loginName;
-  const initial = (user?.chineseName || user?.loginName || '用')[0]?.toUpperCase() || '访';
+  const initial = (user?.displayName || user?.chineseName || user?.loginName || '用')[0]?.toUpperCase() || '访';
   if(isGuest){
     return `<span class="user-avatar-text">${escapeHTML(initial)}</span>`;
   }
+  return `<img class="user-avatar-img ${extraClass}" src="${userAvatarURL(user,spec)}" alt="" loading="lazy"><span class="user-avatar-text">${escapeHTML(initial)}</span>`;
+}
+
+// Custom avatars carry a version so uploads invalidate the browser cache; the
+// backend serves the same photo endpoint for uploaded, SSO and initials avatars.
+function userAvatarURL(user, spec=100){
   const specNum = Number(spec) || 100;
-  const photoUrl = `/api/auth/photo/${specNum}/${encodeURIComponent(user.loginName)}.png`;
-  return `<img class="user-avatar-img ${extraClass}" src="${photoUrl}" alt="" loading="lazy"><span class="user-avatar-text">${escapeHTML(initial)}</span>`;
+  let version = Number(user?.avatarVersion) || 0;
+  if(!version && user?.id && typeof userById === 'function'){
+    const stored = userById(user.id);
+    version = Number(stored?.avatarVersion) || 0;
+  }
+  const base = `/api/auth/photo/${specNum}/${encodeURIComponent(user.loginName)}.png`;
+  return version > 0 ? `${base}?v=${version}` : base;
 }
 
 function renderUserBadge(){
@@ -2447,7 +2672,7 @@ function renderUserBadge(){
   if(!badge) return;
   const user=state.currentUser;
   const isGuest = !user || user.isGuest;
-  const displayName=user?.chineseName||user?.loginName||'访客';
+  const displayName=user?.displayName||user?.chineseName||user?.loginName||'访客';
   if(nameEl) nameEl.textContent=displayName;
   if(avatarEl) avatarEl.innerHTML=userAvatarHTML(user, 100);
   let authErr = null;

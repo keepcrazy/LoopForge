@@ -94,7 +94,8 @@ func (h *authHandlers) authLocal(c *gin.Context) {
 		c.JSON(http.StatusNotFound, map[string]string{"error": "本地验收用户不存在"})
 		return
 	}
-	user := &auth.User{ID: u.ID, StaffID: u.StaffID, LoginName: u.LoginName, ChineseName: u.ChineseName, DeptID: u.DeptID, DeptName: u.DeptName, AuthTime: time.Now().UTC(), AvatarURL: auth.AvatarURL(u.LoginName, 100)}
+	user := domainUserToAuth(u)
+	user.AuthTime = time.Now().UTC()
 	token, err := h.getAuthClient().SignUser(user)
 	if err != nil {
 		respond(c, err)
@@ -190,6 +191,7 @@ func (h *authHandlers) syncAuthUserRecord(user *auth.User, source string) {
 		if existing.ChineseName != "" {
 			user.ChineseName = existing.ChineseName
 		}
+		user.DisplayName = existing.DisplayName
 		if existing.DeptName != "" {
 			user.DeptName = existing.DeptName
 		}
@@ -199,6 +201,9 @@ func (h *authHandlers) syncAuthUserRecord(user *auth.User, source string) {
 		if existing.StaffID > 0 && user.StaffID == 0 {
 			user.StaffID = existing.StaffID
 		}
+		user.PasswordLogin = existing.PasswordLogin
+		user.AvatarConfigured = existing.AvatarConfigured
+		user.AvatarVersion = existing.AvatarVersion
 		return
 	}
 	// 数据库未查到该用户，但请求已经合法登录，执行写表补齐
@@ -227,7 +232,7 @@ func (h *authHandlers) authCurrent(c *gin.Context) {
 			AuthTime:    time.Now().UTC(),
 		}
 		h.syncAuthUserRecord(user, "gateway")
-		user.AvatarURL = auth.AvatarURL(user.LoginName, 100)
+		user.AvatarURL = avatarURLForAuth(user)
 		if token, signErr := h.getAuthClient().SignUser(user); signErr == nil && token != "" {
 			h.setAuthCookie(c.Writer, c.Request, token)
 		}
@@ -248,7 +253,7 @@ func (h *authHandlers) authCurrent(c *gin.Context) {
 			} else {
 				if user.LoginName != "" {
 					h.syncAuthUserRecord(user, "cookie")
-					user.AvatarURL = auth.AvatarURL(user.LoginName, 100)
+					user.AvatarURL = avatarURLForAuth(user)
 				}
 				if token, signErr := h.getAuthClient().SignUser(user); signErr == nil && token != "" {
 					h.setAuthCookie(c.Writer, c.Request, token)
@@ -309,7 +314,13 @@ func (h *authHandlers) authExchange(c *gin.Context) {
 		}
 	}
 	if user != nil && !user.IsGuest && user.LoginName != "" {
-		user.AvatarURL = auth.AvatarURL(user.LoginName, 100)
+		if h.repo != nil {
+			if stored, ok := h.repo.UserByLoginName(user.LoginName); ok {
+				applyStoredProfile(user, stored)
+				user.AuthTime = time.Now().UTC()
+			}
+		}
+		user.AvatarURL = avatarURLForAuth(user)
 	}
 	token, signErr := h.getAuthClient().SignUser(user)
 	if signErr == nil && token != "" {
@@ -395,14 +406,37 @@ func (h *authHandlers) authPhoto(c *gin.Context) {
 		}
 	}
 
-	if h.getAuthClient().Config().AuthHost == "" {
-		name, err := auth.SanitizeUsername(username)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid username"})
-			return
+	cleanName, err := auth.SanitizeUsername(username)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid username"})
+		return
+	}
+	// A user-uploaded avatar always wins over the SSO photo and the local
+	// initials fallback, so the same URL works across deployments.
+	if h.repo != nil {
+		if stored, ok := h.repo.UserByLoginName(cleanName); ok {
+			if avatar, found := h.repo.UserAvatar(stored.ID); found {
+				etag := fmt.Sprintf(`"avatar-%d"`, avatar.Version)
+				c.Header("Content-Type", avatar.ContentType)
+				c.Header("ETag", etag)
+				c.Header("X-Content-Type-Options", "nosniff")
+				if c.Query("v") != "" {
+					c.Header("Cache-Control", avatarCacheControl)
+				} else {
+					c.Header("Cache-Control", "no-cache")
+				}
+				if match := strings.TrimSpace(c.GetHeader("If-None-Match")); match == etag {
+					c.Status(http.StatusNotModified)
+					return
+				}
+				c.Data(http.StatusOK, avatar.ContentType, avatar.Data)
+				return
+			}
 		}
+	}
+	if h.getAuthClient().Config().AuthHost == "" {
 		c.Header("Cache-Control", "public, max-age=86400")
-		c.Data(http.StatusOK, "image/svg+xml", initialsAvatar(name))
+		c.Data(http.StatusOK, "image/svg+xml", initialsAvatar(cleanName))
 		return
 	}
 	data, contentType, err := h.getAuthClient().FetchPhoto(c.Request.Context(), username, spec)

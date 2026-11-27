@@ -41,7 +41,11 @@ func newTestAuthServer(t *testing.T, authClient *auth.Client) (*gin.Engine, *rep
 	g.POST("/api/auth/logout", srv.auth.authLogout)
 	g.GET("/api/auth/photo", srv.auth.authPhoto)
 	g.GET("/api/auth/photo/:spec/:username", srv.auth.authPhoto)
+	g.PUT("/api/auth/password", srv.auth.authChangePassword)
 	g.GET("/api/users", srv.users.users)
+	g.PUT("/api/users/:id/profile", srv.users.updateUserProfile)
+	g.PUT("/api/users/:id/avatar", srv.users.updateUserAvatar)
+	g.DELETE("/api/users/:id/avatar", srv.users.deleteUserAvatar)
 	return g, s
 }
 
