@@ -1842,7 +1842,7 @@ async function renderPersonalSettings(){
   }
   if(credentialWizard)closeCredentialWizard(true);
   renderPersonalAccountStrip(user);
-  host.innerHTML=`<div class="profile-stack">${personalProfileHTML(user,storedUser)}</div><section class="credential-panel is-entering" id="credentialPanel"></section>`;
+  host.innerHTML=`<section class="credential-panel is-entering" id="credentialPanel"></section><div class="profile-stack">${personalProfileHTML(user,storedUser)}</div>`;
   bindPersonalProfile(host,user);
   const panel=host.querySelector('#credentialPanel');
   bindCredentialPanel(panel);
