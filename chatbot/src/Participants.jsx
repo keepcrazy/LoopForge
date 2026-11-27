@@ -11,7 +11,9 @@ export function authorFor(message, session, users = []) {
       (message.authorName && !message.authorName.startsWith("用户 ")
         ? message.authorName
         : ""),
+    avatarVersion: user?.avatarVersion || 0,
     name:
+      user?.displayName ||
       user?.chineseName ||
       user?.loginName ||
       message.authorName ||
@@ -27,7 +29,7 @@ export function Avatar({ person, className = "" }) {
       <span>{person.name?.[0]?.toUpperCase() || "?"}</span>
       {person.loginName ? (
         <img
-          src={`/api/auth/photo/100/${encodeURIComponent(person.loginName)}.png`}
+          src={`/api/auth/photo/100/${encodeURIComponent(person.loginName)}.png${person.avatarVersion ? `?v=${person.avatarVersion}` : ""}`}
           alt=""
           loading="lazy"
           onError={(e) => {

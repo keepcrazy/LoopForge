@@ -240,6 +240,7 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.GET("/api/health", api.health)
 	g.GET("/api/auth/current", api.auth.authCurrent)
 	g.POST("/api/auth/password", api.auth.authPassword)
+	g.PUT("/api/auth/password", api.auth.authChangePassword)
 	g.GET("/api/auth/setup", api.auth.authSetup)
 	g.POST("/api/auth/register", api.auth.authRegister)
 	g.GET("/api/auth/local", api.auth.authLocal)
@@ -295,6 +296,9 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.DELETE("/api/users/:id/git-http-credentials/:credID", api.users.gitHTTPCredentials)
 	g.POST("/api/users/:id/git-http-credentials/:credID/verify", api.users.verifyGitHTTPCredential)
 	g.POST("/api/users/:id/cli-models/probe", api.users.probeCLIModels)
+	g.PUT("/api/users/:id/profile", api.users.updateUserProfile)
+	g.PUT("/api/users/:id/avatar", api.users.updateUserAvatar)
+	g.DELETE("/api/users/:id/avatar", api.users.deleteUserAvatar)
 	g.Any("/api/users/:id", func(c *gin.Context) {
 		c.JSON(http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 	})

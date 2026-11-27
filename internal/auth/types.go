@@ -16,16 +16,20 @@ import (
 
 // User 表示当前登录或降级后的员工身份。
 type User struct {
-	ID              int64     `json:"id"`
-	StaffID         int       `json:"staffId"`
-	LoginName       string    `json:"loginName"`
-	ChineseName     string    `json:"chineseName"`
-	DeptID          int       `json:"deptId"`
-	DeptName        string    `json:"deptName"`
-	IsGuest         bool      `json:"isGuest"`
-	IsPlatformAdmin bool      `json:"isPlatformAdmin,omitempty"`
-	AuthTime        time.Time `json:"authTime"`
-	AvatarURL       string    `json:"avatarUrl,omitempty"`
+	ID               int64     `json:"id"`
+	StaffID          int       `json:"staffId"`
+	LoginName        string    `json:"loginName"`
+	ChineseName      string    `json:"chineseName"`
+	DisplayName      string    `json:"displayName,omitempty"`
+	DeptID           int       `json:"deptId"`
+	DeptName         string    `json:"deptName"`
+	PasswordLogin    bool      `json:"passwordLogin,omitempty"`
+	AvatarConfigured bool      `json:"avatarConfigured,omitempty"`
+	AvatarVersion    int64     `json:"avatarVersion,omitempty"`
+	IsGuest          bool      `json:"isGuest"`
+	IsPlatformAdmin  bool      `json:"isPlatformAdmin,omitempty"`
+	AuthTime         time.Time `json:"authTime"`
+	AvatarURL        string    `json:"avatarUrl,omitempty"`
 }
 
 // ToDomain 将 auth.User 转换为持久化层实体 domain.User。
@@ -38,6 +42,7 @@ func (u *User) ToDomain() domain.User {
 		StaffID:     u.StaffID,
 		LoginName:   u.LoginName,
 		ChineseName: u.ChineseName,
+		DisplayName: u.DisplayName,
 		DeptID:      u.DeptID,
 		DeptName:    u.DeptName,
 	}

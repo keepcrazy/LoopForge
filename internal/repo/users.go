@@ -22,9 +22,13 @@ type userWithConfig struct {
 	StaffID                      int        `gorm:"column:staff_id"`
 	LoginName                    string     `gorm:"column:login_name"`
 	ChineseName                  string     `gorm:"column:chinese_name"`
+	DisplayName                  string     `gorm:"column:display_name"`
 	DeptID                       int        `gorm:"column:dept_id"`
 	DeptName                     string     `gorm:"column:dept_name"`
 	PlatformRole                 string     `gorm:"column:platform_role"`
+	PasswordLogin                bool       `gorm:"column:password_login"`
+	AvatarConfigured             bool       `gorm:"column:avatar_configured"`
+	AvatarVersion                int64      `gorm:"column:avatar_version"`
 	GitToken                     *string    `gorm:"column:git_token"`
 	GitSSHKeyConfigured          bool       `gorm:"column:git_ssh_key_configured"`
 	GitHTTPCredentialsConfigured bool       `gorm:"column:git_http_credentials_configured"`
@@ -47,8 +51,12 @@ type userWithConfig struct {
 	Updated                      *time.Time `gorm:"column:updated_at"`
 }
 
-const userSelectColumns = `u.id, u.staff_id, u.login_name, u.chinese_name, u.dept_id, u.dept_name,
+const userSelectColumns = `u.id, u.staff_id, u.login_name, u.chinese_name, COALESCE(u.display_name, '') AS display_name,
+	u.dept_id, u.dept_name,
 	COALESCE(u.platform_role, '') AS platform_role,
+	EXISTS (SELECT 1 FROM local_accounts l WHERE l.user_id = u.id) AS password_login,
+	EXISTS (SELECT 1 FROM user_avatars a WHERE a.user_id = u.id) AS avatar_configured,
+	COALESCE((SELECT a.version FROM user_avatars a WHERE a.user_id = u.id), 0) AS avatar_version,
 	c.git_token, EXISTS (SELECT 1 FROM user_git_ssh_keys k WHERE k.user_id = u.id) AS git_ssh_key_configured,
 	EXISTS (SELECT 1 FROM user_git_http_credentials h WHERE h.user_id = u.id) AS git_http_credentials_configured,
 	EXISTS (SELECT 1 FROM user_git_http_credentials h WHERE h.user_id = u.id AND h.host = 'github.com') AS github_credential_configured,
@@ -61,7 +69,10 @@ const userSelectColumns = `u.id, u.staff_id, u.login_name, u.chinese_name, u.dep
 func (r userWithConfig) toDomain() domain.User {
 	u := domain.User{
 		ID: r.ID, StaffID: r.StaffID, LoginName: r.LoginName, ChineseName: r.ChineseName,
-		DeptID: r.DeptID, DeptName: r.DeptName, PlatformRole: r.PlatformRole,
+		DisplayName: r.DisplayName, DeptID: r.DeptID, DeptName: r.DeptName, PlatformRole: r.PlatformRole,
+		PasswordLogin:                r.PasswordLogin,
+		AvatarConfigured:             r.AvatarConfigured,
+		AvatarVersion:                r.AvatarVersion,
 		CodeBuddyInternetEnvironment: r.CodeBuddyInternetEnvironment,
 		CodeBuddyModels:              decodeCLIModels(r.CodeBuddyModels),
 		GitSSHKeyConfigured:          r.GitSSHKeyConfigured,
@@ -173,8 +184,11 @@ func (r *UsersRepo) PutUser(v domain.User) error {
 			v.ID = old.ID
 		}
 		v.CreatedAt = old.CreatedAt
-		// Authentication refreshes identity fields only. Credentials are managed
-		// through UpdateUserCredentials and must survive every login refresh.
+		// Authentication refreshes identity fields only. Profile fields and
+		// credentials are managed explicitly and must survive every login refresh.
+		if strings.TrimSpace(v.DisplayName) == "" {
+			v.DisplayName = old.DisplayName
+		}
 		v.GitToken = old.GitToken
 		v.GongfengRefreshToken = old.GongfengRefreshToken
 		v.GongfengTokenExpiresAt = old.GongfengTokenExpiresAt
@@ -211,14 +225,16 @@ func (r *UsersRepo) writeUser(v domain.User) (domain.User, error) {
 	if v.ID > 0 {
 		err := upsert(r.DB, "users", map[string]any{
 			"id": v.ID, "staff_id": v.StaffID, "login_name": v.LoginName, "chinese_name": v.ChineseName,
-			"dept_id": v.DeptID, "dept_name": v.DeptName, "platform_role": v.PlatformRole,
+			"display_name": v.DisplayName,
+			"dept_id":      v.DeptID, "dept_name": v.DeptName, "platform_role": v.PlatformRole,
 			"created_at": timePtr(v.CreatedAt), "updated_at": timePtr(v.UpdatedAt),
 		})
 		return v, err
 	}
 	inserted, err := insertIgnore(r.DB, "users", map[string]any{
 		"staff_id": v.StaffID, "login_name": v.LoginName, "chinese_name": v.ChineseName,
-		"dept_id": v.DeptID, "dept_name": v.DeptName, "platform_role": v.PlatformRole,
+		"display_name": v.DisplayName,
+		"dept_id":      v.DeptID, "dept_name": v.DeptName, "platform_role": v.PlatformRole,
 		"created_at": timePtr(v.CreatedAt), "updated_at": timePtr(v.UpdatedAt),
 	})
 	if err != nil {
@@ -231,8 +247,9 @@ func (r *UsersRepo) writeUser(v domain.User) (domain.User, error) {
 			return domain.User{}, err
 		}
 		if err := r.DB.Model(&userRow{}).Where("id = ?", existing.ID).Updates(map[string]any{
-			"staff_id": v.StaffID, "chinese_name": v.ChineseName, "dept_id": v.DeptID,
-			"dept_name": v.DeptName, "platform_role": v.PlatformRole, "updated_at": timePtr(v.UpdatedAt),
+			"staff_id": v.StaffID, "chinese_name": v.ChineseName, "display_name": v.DisplayName,
+			"dept_id": v.DeptID, "dept_name": v.DeptName, "platform_role": v.PlatformRole,
+			"updated_at": timePtr(v.UpdatedAt),
 		}).Error; err != nil {
 			return domain.User{}, err
 		}

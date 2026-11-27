@@ -26,8 +26,14 @@ type User struct {
 	StaffID             int                           `json:"staffId"`
 	LoginName           string                        `json:"loginName"`
 	ChineseName         string                        `json:"chineseName"`
-	DeptID              int                           `json:"deptId"`
-	DeptName            string                        `json:"deptName"`
+	// DisplayName is the user's own profile name. It overrides ChineseName in
+	// the UI when set; ChineseName stays the directory/SSO name.
+	DisplayName      string `json:"displayName,omitempty"`
+	DeptID           int    `json:"deptId"`
+	DeptName         string `json:"deptName"`
+	PasswordLogin    bool   `json:"passwordLogin,omitempty"`
+	AvatarConfigured bool   `json:"avatarConfigured,omitempty"`
+	AvatarVersion    int64  `json:"avatarVersion,omitempty"`
 	// PlatformRole is a platform-wide role, independent of project membership.
 	// "admin" may edit generic SOP templates; empty is a regular user.
 	PlatformRole                 string     `json:"platformRole,omitempty"`

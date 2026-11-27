@@ -121,11 +121,7 @@ func (d deps) requestUser(r *http.Request, allowBearer bool) (*auth.User, bool) 
 		return d.previewLocalAuthUser()
 	}
 	if stored, exists := d.repo.UserByLoginName(user.LoginName); exists {
-		user.ID = stored.ID
-		user.StaffID = stored.StaffID
-		user.ChineseName = stored.ChineseName
-		user.DeptID = stored.DeptID
-		user.DeptName = stored.DeptName
+		applyStoredProfile(user, stored)
 	}
 	return user, true
 }
@@ -153,23 +149,27 @@ func (d deps) previewLocalAuthUser() (*auth.User, bool) {
 	if !ok {
 		return nil, false
 	}
-	user := domainUserToAuth(stored)
-	user.AvatarURL = auth.AvatarURL(stored.LoginName, 100)
-	return user, true
+	return domainUserToAuth(stored), true
 }
 
 func domainUserToAuth(user domain.User) *auth.User {
-	return &auth.User{
-		ID:              user.ID,
-		StaffID:         user.StaffID,
-		LoginName:       user.LoginName,
-		ChineseName:     user.ChineseName,
-		DeptID:          user.DeptID,
-		DeptName:        user.DeptName,
-		IsGuest:         false,
-		IsPlatformAdmin: repo.IsAllowlistedPlatformAdmin(user.LoginName) || domain.IsPlatformAdmin(user),
-		AuthTime:        time.Now().UTC(),
+	u := &auth.User{
+		ID:               user.ID,
+		StaffID:          user.StaffID,
+		LoginName:        user.LoginName,
+		ChineseName:      user.ChineseName,
+		DisplayName:      user.DisplayName,
+		DeptID:           user.DeptID,
+		DeptName:         user.DeptName,
+		PasswordLogin:    user.PasswordLogin,
+		AvatarConfigured: user.AvatarConfigured,
+		AvatarVersion:    user.AvatarVersion,
+		IsGuest:          false,
+		IsPlatformAdmin:  repo.IsAllowlistedPlatformAdmin(user.LoginName) || domain.IsPlatformAdmin(user),
+		AuthTime:         time.Now().UTC(),
 	}
+	u.AvatarURL = avatarURLForAuth(u)
+	return u
 }
 
 // annotateUser fills IsPlatformAdmin from the store / builtin allowlist.

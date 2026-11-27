@@ -42,6 +42,34 @@ func (r *UsersRepo) SetLocalPassword(userID int64, password string) error {
 
 var ErrLoginTaken = errors.New("login already exists")
 
+var (
+	// ErrNoLocalPassword marks accounts that sign in through GitHub or a gateway.
+	ErrNoLocalPassword = errors.New("account has no local password")
+	// ErrInvalidCurrentPassword is returned when a password change proves the
+	// caller does not know the current password.
+	ErrInvalidCurrentPassword = errors.New("current password is incorrect")
+)
+
+// HasLocalPassword reports whether the account signs in with a password.
+func (r *UsersRepo) HasLocalPassword(userID int64) bool {
+	var count int64
+	r.DB.Model(&localAccountRow{}).Where("user_id = ?", userID).Count(&count)
+	return count > 0
+}
+
+// ChangeLocalPassword verifies the current password before replacing it. It
+// refuses accounts without a password (GitHub / gateway sign-in) so a profile
+// edit can never add a password login to them.
+func (r *UsersRepo) ChangeLocalPassword(userID int64, current, next string) error {
+	if !r.HasLocalPassword(userID) {
+		return ErrNoLocalPassword
+	}
+	if !r.CheckLocalPassword(userID, current) {
+		return ErrInvalidCurrentPassword
+	}
+	return r.SetLocalPassword(userID, next)
+}
+
 func (r *UsersRepo) LocalAccountCount() int64 {
 	var n int64
 	r.DB.Model(&localAccountRow{}).Count(&n)
